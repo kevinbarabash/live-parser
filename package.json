@@ -1,0 +1,32 @@
+{
+  "name": "live-parser",
+  "version": "0.0.1",
+  "description": "Updating an existing AST by parsing subregion of code containing the cursor.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack",
+    "watch": "webpack --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kevinb7/live-parser"
+  },
+  "author": "Kevin Barabash <kevinb7@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kevinb7/live-parser/issues"
+  },
+  "homepage": "https://github.com/kevinb7/live-parser",
+  "dependencies": {
+    "escodegen": "^1.6.1",
+    "esprima": "^2.2.0",
+    "estraverse": "^4.1.0"
+  },
+  "devDependencies": {
+    "ace": "0.0.2",
+    "json-loader": "^0.5.2",
+    "node-libs-browser": "^0.5.2",
+    "webpack": "^1.9.10"
+  }
+}
