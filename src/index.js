@@ -15,11 +15,30 @@ var code = xhr.response;
 
 editor.setValue(code, -1);
 
-var ast = esprima.parse(code, {
-    loc: true
-});
-//console.log(ast);
+var esprimaOptions = {
+    loc: true,
+    range: true,
+    tokens: true,
+    comment: true
+};
 
+var escodegenOptions = {
+    comment: true,
+    sourceCode: code,
+    format: {
+        preserveBlankLines: true
+    }
+};
+
+var ast = esprima.parse(code, esprimaOptions);
+
+//estraverse.traverse(ast, {
+//    enter: function(node, parent) {
+//        node.parent = parent;
+//    }
+//});
+
+self.esprima = esprima;
 
 var shouldWalk = function(node, cursorPosition) {
     var loc = node.loc;
@@ -46,8 +65,36 @@ var isDeclaration = function (node) {
     return node.type.indexOf("Declaration") !== -1;
 };
 
+var incrementLines = function(ast, afterLine, amount) {
+    amount = amount || 1;
+
+    var first = true;
+    estraverse.traverse(ast, {
+        enter: function(node) {
+            var start = node.loc.start;
+            var end = node.loc.end;
+            if (start.line > afterLine) {
+                if (first) {
+                    first = false;
+                    console.log("first: %o", node);
+                }
+                start.line += amount;
+            }
+            if (end.line > afterLine) {
+                end.line += amount;
+            }
+        }
+    });
+};
+
 editor.on('change', function(e) {
     console.log(e.data);
+    var newLine = false;
+    if (e.data.text === "\n") {
+        newLine = true;
+        // TODO: check if we're at the end of a line
+    }
+
     var start = e.data.range.start;
     var cursorPosition = {
         column: start.column,
@@ -69,51 +116,79 @@ editor.on('change', function(e) {
             }
         }
     });
-
-    console.log(cursorStatement);
+    //console.log(cursorStatement);
+    //console.log(escodegen.generate(cursorStatement));
 
     // convert back to zero-indexing
     var startLine = cursorStatement.loc.start.line - 1;
     var endLine = cursorStatement.loc.end.line - 1;
     var rows = editor.getSession().getLines(startLine, endLine);
 
+    // trim first/last rows as necessary
+    var startColumn = cursorStatement.loc.start.column;
+    var endColumn = cursorStatement.loc.end.column;
+
+    console.log("startCol = " + startColumn + ", endCol = " + endColumn);
+    if (startLine === endLine) {
+        rows[0] = rows[0].substring(startColumn, endColumn);
+    } else {
+        rows[0] = rows[0].substring(startColumn);
+        rows[rows.length - 1] = rows[rows.length - 1].substring(0, endColumn);
+    }
+
     var code = rows.join("\n");
+    console.log("code to replace: %s", code);
 
-    var sub_ast = esprima.parse(code, {
-        loc: true
-    });
-
-    console.log(sub_ast);
-
-    var replacementStatement = sub_ast.body[0];
-
-    console.log(startLine);
-
-    // shift the line numbers so that they appear in the correct location
-    estraverse.traverse(replacementStatement, {
-        enter: function (node) {
-            node.loc.start.line += startLine;
-            node.loc.end.line += startLine;
+    if (newLine) {
+        incrementLines(ast, start.row + 1);
+    } else {
+        try {
+            var sub_ast = esprima.parse(code, esprimaOptions);
+        } catch (e) {
+            console.log("parse error");
+            return;
         }
-    });
 
-    // find the node we want to replace and replace it with the new statement
-    estraverse.replace(ast, {
-        enter: function(node) {
-            if (shouldWalk(node, cursorPosition)) {
-                if (isStatement(node) || isDeclaration(node)) {
-                    if (node == cursorStatement) {
-                        return replacementStatement;
-                    }
-                }
-            } else {
-                this.skip();
+        var replacementStatement = sub_ast.body[0];
+
+        if (replacementStatement.type === "BlockStatement") {
+            replacementStatement.loc.start.column = startColumn;
+            replacementStatement.loc.end.column = endColumn;
+        }
+        // TODO: figure out how to handle expression statements where
+        // the endColumn changes as we insert chars
+
+        // only continue if the edit changed
+        // TODO compare against before/after sub_ast to avoid unnecessary updates
+        console.log("replacement code: %s", escodegen.generate(sub_ast, escodegenOptions));
+        console.log("replacement statement: %o", replacementStatement);
+
+        // shift the line numbers so that they appear in the correct location
+        estraverse.traverse(replacementStatement, {
+            enter: function (node) {
+                node.loc.start.line += startLine;
+                node.loc.end.line += startLine;
             }
-        }
-    });
+        });
 
-    // print out the code to double check that nothing changed except for the
-    // expected change
-    // we can use this for fuzz testing... diff the before/after text
-    console.log(escodegen.generate(ast));
+        // find the node we want to replace and replace it with the new statement
+        estraverse.replace(ast, {
+            enter: function(node) {
+                if (shouldWalk(node, cursorPosition)) {
+                    if (isStatement(node) || isDeclaration(node)) {
+                        if (node == cursorStatement) {
+                            return replacementStatement;
+                        }
+                    }
+                } else {
+                    this.skip();
+                }
+            }
+        });
+
+        // print out the code to double check that nothing changed except for the
+        // expected change
+        // we can use this for fuzz testing... diff the before/after text
+        console.log(escodegen.generate(ast, escodegenOptions));
+    }
 });
